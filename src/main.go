@@ -20,6 +20,7 @@ const (
 	VERSION      = "v0.1.0"
 	AUTHOR       = "Cyril John Magayaga"
 	PREVIEW_FLAG = "--preview"
+	TIME_FLAG    = "--time"
 )
 
 // Command constants
@@ -122,10 +123,17 @@ main();`
 	fmt.Printf("[%.3fs] Create file: %s\n", elapsed.Seconds(), filename)
 }
 
-func runProject(args []string) {
+func runProject(args []string, useTime bool, hideOutput bool) {
 	startTime := time.Now()
 	isPreview := false
 	var targetFile string
+
+	// Get current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Parse arguments
 	for i := 1; i < len(args); i++ {
@@ -134,12 +142,6 @@ func runProject(args []string) {
 		} else {
 			targetFile = args[i]
 		}
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		os.Exit(1)
 	}
 
 	bituinTomlPath := filepath.Join(cwd, "bituin.toml")
@@ -192,10 +194,8 @@ func runProject(args []string) {
 	var executableName string
 	if isPreview {
 		executableName = "microscript-preview.exe"
-		fmt.Printf("\033[90mRunning in preview mode: %s\033[0m\n", mainFileName)
 	} else {
 		executableName = "microscript.exe"
-		fmt.Printf("\033[90mRunning: %s\033[0m\n", mainFileName)
 	}
 
 	microscriptExe := filepath.Join(cwd, "..", executableName)
@@ -207,26 +207,28 @@ func runProject(args []string) {
 	// Execute the MicroScript file
 	cmd := exec.Command(microscriptExe, "run", mainFile)
 	output, err := cmd.CombinedOutput()
-
 	elapsed := time.Since(startTime)
 
-	if err != nil {
-		fmt.Printf("\033[91m[%.3fs] Error: execution failed\033[0m\n", elapsed.Seconds())
+	// Output handling
+	if hideOutput {
+		fmt.Printf("[%.3fs] Execution completed.\n", elapsed.Seconds())
+	} else {
+		if err != nil {
+			fmt.Printf("\033[91m[%.3fs] Error: execution failed\033[0m\n", elapsed.Seconds())
+			if len(output) > 0 {
+				fmt.Print(string(output))
+			}
+			os.Exit(1)
+		}
+		fmt.Printf("\033[90m[%.3fs] Success: %s\033[0m\n", elapsed.Seconds(), mainFileName)
+		fmt.Println("\033[32m✓\033[0m Project executed successfully!")
+		fmt.Println()
 		if len(output) > 0 {
 			fmt.Print(string(output))
 		}
-		os.Exit(1)
-	}
-
-	mode := "preview"
-	if !isPreview {
-		mode = "regular"
-	}
-	fmt.Printf("\033[90m[%.3fs] Success: %s (%s mode)\033[0m\n", elapsed.Seconds(), mainFileName, mode)
-	fmt.Println("\033[32m✓\033[0m Project executed successfully!")
-	fmt.Println()
-	if len(output) > 0 {
-		fmt.Print(string(output))
+		if useTime {
+			fmt.Printf("\n[%.3fs] Elapsed time\n", elapsed.Seconds())
+		}
 	}
 }
 
@@ -279,6 +281,18 @@ func createProject(projectName string, isNew bool) {
 
 func main() {
 	args := os.Args[1:]
+	useTime := false
+
+	// Detect and remove --time from args
+	var filteredArgs []string
+	for _, arg := range args {
+		if arg == TIME_FLAG {
+			useTime = true
+		} else {
+			filteredArgs = append(filteredArgs, arg)
+		}
+	}
+	args = filteredArgs
 
 	if len(args) == 0 {
 		printUsage()
@@ -316,8 +330,14 @@ func main() {
 		}
 		addMicroscriptFile(args[1])
 	case RUN:
-		runProject(args)
+		runProject(args, useTime, false)
 	default:
+		// If --time is first and not "run", treat as "run --time file", but output is hidden
+		if useTime && len(args) > 0 && filepath.Ext(args[0]) == ".microscript" {
+			// args[0] is a filename
+			runProject([]string{RUN, args[0]}, true, true)
+			return
+		}
 		fmt.Printf("Unknown command: %s\n", command)
 		printUsage()
 		os.Exit(1)
